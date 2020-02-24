@@ -2,8 +2,10 @@ package main
 
 import (
 	"crypto/tls"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io/ioutil"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -66,6 +68,11 @@ type ExporterOptions struct {
 	MetricsPath         string
 	RedisMetricsOnly    bool
 	Registry            *prometheus.Registry
+}
+
+type redisPwd struct {
+	MasterDomain string `json:"masterDomain"`
+	Password     string `json:"pwd"`
 }
 
 func (e *Exporter) ScrapeHandler(w http.ResponseWriter, r *http.Request) {
@@ -148,8 +155,49 @@ func newMetricDescr(namespace string, metricName string, docString string, label
 	return prometheus.NewDesc(prometheus.BuildFQName(namespace, "", metricName), docString, labels, nil)
 }
 
+// get password from itsm
+func getRedisPwd(redisURI string) (string, error) {
+
+	u, err := url.Parse("http://my.itsm.com/path/?masterDomain=myredisMasterDomain")
+	if err != nil {
+		log.Fatal(err)
+	}
+	u.Scheme = "http"
+	u.Host = "itsm.batmobi.cn"
+	q := u.Query()
+	q.Set("masterDomain", redisURI)
+	u.RawQuery = q.Encode()
+	fmt.Println(u)
+
+	// http.Get(u.String())
+
+	resp, err := http.Get(u.String())
+	if err != nil {
+		log.Fatal(err)
+	}
+	if resp.StatusCode != 200 {
+		return "", fmt.Errorf("获取密码失败，运维平台返回状态码为: %d", resp.StatusCode)
+	}
+	defer resp.Body.Close()
+	body, err := ioutil.ReadAll(resp.Body)
+
+	var redisPwd redisPwd
+	if err := json.Unmarshal(body, &redisPwd); err != nil {
+		log.Println("[ERROR:]", err)
+	}
+
+	fmt.Printf(redisPwd.MasterDomain)
+	return redisPwd.Password, nil
+}
+
 // NewRedisExporter returns a new exporter of Redis metrics.
 func NewRedisExporter(redisURI string, opts ExporterOptions) (*Exporter, error) {
+	// get password
+	password, err := getRedisPwd(redisURI)
+	if err != nil {
+		return nil, err
+	}
+	opts.Password = password
 	e := &Exporter{
 		redisAddr: redisURI,
 		options:   opts,
