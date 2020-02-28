@@ -20,10 +20,11 @@ go get github.com/tcnksm/ghr
 if [[ -f 'go.mod' ]] ; then
   go mod tidy
 fi
+gox -verbose -os="linux" -arch="amd64" -rebuild -ldflags "${GO_LDFLAGS}" -output ".build/redis_exporter-${DRONE_TAG}.{{.OS}}-{{.Arch}}/{{.Dir}}"
 
-gox -verbose -os="darwin linux windows freebsd netbsd openbsd" -arch="386 amd64" -rebuild -ldflags "${GO_LDFLAGS}" -output ".build/redis_exporter-${DRONE_TAG}.{{.OS}}-{{.Arch}}/{{.Dir}}"
-gox -verbose -os="linux freebsd netbsd" -arch="arm" -rebuild -ldflags "${GO_LDFLAGS}" -output ".build/redis_exporter-${DRONE_TAG}.{{.OS}}-{{.Arch}}/{{.Dir}}"
-gox -verbose -os="linux" -arch="arm64 mips64 mips64le ppc64 ppc64le s390x" -rebuild -ldflags "${GO_LDFLAGS}" -output ".build/redis_exporter-${DRONE_TAG}.{{.OS}}-{{.Arch}}/{{.Dir}}"
+#gox -verbose -os="darwin linux windows freebsd netbsd openbsd" -arch="386 amd64" -rebuild -ldflags "${GO_LDFLAGS}" -output ".build/redis_exporter-${DRONE_TAG}.{{.OS}}-{{.Arch}}/{{.Dir}}"
+#gox -verbose -os="linux freebsd netbsd" -arch="arm" -rebuild -ldflags "${GO_LDFLAGS}" -output ".build/redis_exporter-${DRONE_TAG}.{{.OS}}-{{.Arch}}/{{.Dir}}"
+#gox -verbose -os="linux" -arch="arm64 mips64 mips64le ppc64 ppc64le s390x" -rebuild -ldflags "${GO_LDFLAGS}" -output ".build/redis_exporter-${DRONE_TAG}.{{.OS}}-{{.Arch}}/{{.Dir}}"
 
 mkdir -p dist
 
@@ -43,11 +44,11 @@ for build in $(ls .build); do
 done
 
 cd dist
-sha256sum *.gz *.zip > sha256sums.txt
+sha256sum *.gz > sha256sums.txt
 ls -la
 cd ..
 
-echo "Upload to Github"
-ghr -u oliver006 -r redis_exporter --replace "${DRONE_TAG}" dist/
+#echo "Upload to Github"
+#ghr -u oliver006 -r redis_exporter --replace "${DRONE_TAG}" dist/
 
 echo "Done"

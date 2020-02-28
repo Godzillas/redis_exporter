@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/gomodule/redigo/redis"
+	"github.com/patrickmn/go-cache"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	prom_strutil "github.com/prometheus/prometheus/util/strutil"
@@ -72,10 +73,11 @@ type ExporterOptions struct {
 
 type redisPwd struct {
 	MasterDomain string `json:"masterDomain"`
-	Password     string `json:"pwd"`
+	Password     string `json:"password"`
 }
 
-func (e *Exporter) ScrapeHandler(w http.ResponseWriter, r *http.Request) {
+func (e *Exporter) scrapeHandler(w http.ResponseWriter, r *http.Request) {
+
 	target := r.URL.Query().Get("target")
 	if target == "" {
 		http.Error(w, "'target' parameter must be specified", 400)
@@ -99,6 +101,14 @@ func (e *Exporter) ScrapeHandler(w http.ResponseWriter, r *http.Request) {
 	target = u.String()
 
 	opts := e.options
+
+	// get password
+	password, err := getRedisPwd(u.Hostname(), u.Port())
+	if err != nil {
+		log.Println("获取密码失败")
+		return
+	}
+	opts.Password = password
 
 	if ck := r.URL.Query().Get("check-keys"); ck != "" {
 		opts.CheckKeys = ck
@@ -156,18 +166,27 @@ func newMetricDescr(namespace string, metricName string, docString string, label
 }
 
 // get password from itsm
-func getRedisPwd(redisURI string) (string, error) {
+func getRedisPwd(redisURI, redisPort string) (string, error) {
+	log.Debug("redis实例：", redisURI, "端口：", redisPort)
+	// 从缓存获取对应key的值
+	pwd, found := RedisInfoCacheData.Get(redisURI + ":" + redisPort)
+	if found {
+		log.Debug("从缓存已经获取到密码： %#v", pwd)
+		return pwd.(string), nil
+	}
 
-	u, err := url.Parse("http://my.itsm.com/path/?masterDomain=myredisMasterDomain")
+	u, err := url.Parse("http://itsm.batmobi.cn/devapi/get_redis_pwd/?ip=192.168.1.1&port=6379")
 	if err != nil {
 		log.Fatal(err)
 	}
 	u.Scheme = "http"
 	u.Host = "itsm.batmobi.cn"
+	u.Path = "devapi/get_redis_pwd/"
 	q := u.Query()
-	q.Set("masterDomain", redisURI)
+	q.Set("ip", redisURI)
+	q.Set("port", redisPort)
 	u.RawQuery = q.Encode()
-	fmt.Println(u)
+	log.Debugf("Redis URL: %#v", u)
 
 	// http.Get(u.String())
 
@@ -176,6 +195,7 @@ func getRedisPwd(redisURI string) (string, error) {
 		log.Fatal(err)
 	}
 	if resp.StatusCode != 200 {
+		log.Errorf("获取密码失败，运维平台返回状态码为: %d", resp.StatusCode)
 		return "", fmt.Errorf("获取密码失败，运维平台返回状态码为: %d", resp.StatusCode)
 	}
 	defer resp.Body.Close()
@@ -183,21 +203,16 @@ func getRedisPwd(redisURI string) (string, error) {
 
 	var redisPwd redisPwd
 	if err := json.Unmarshal(body, &redisPwd); err != nil {
-		log.Println("[ERROR:]", err)
+		log.Debugf("json fmt error %#v", err)
 	}
-
-	fmt.Printf(redisPwd.MasterDomain)
+	// 缓存密码
+	RedisInfoCacheData.Set(redisURI+":"+redisPort, redisPwd.Password, cache.NoExpiration)
+	log.Debug("已经缓存密码")
 	return redisPwd.Password, nil
 }
 
 // NewRedisExporter returns a new exporter of Redis metrics.
 func NewRedisExporter(redisURI string, opts ExporterOptions) (*Exporter, error) {
-	// get password
-	password, err := getRedisPwd(redisURI)
-	if err != nil {
-		return nil, err
-	}
-	opts.Password = password
 	e := &Exporter{
 		redisAddr: redisURI,
 		options:   opts,
@@ -403,7 +418,7 @@ func NewRedisExporter(redisURI string, opts ExporterOptions) (*Exporter, error) 
 		}
 	}
 
-	e.mux.HandleFunc("/scrape", e.ScrapeHandler)
+	e.mux.HandleFunc("/scrape", e.scrapeHandler)
 	e.mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`ok`))
 	})

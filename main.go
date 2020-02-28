@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/patrickmn/go-cache"
 	"github.com/prometheus/client_golang/prometheus"
 	log "github.com/sirupsen/logrus"
 )
@@ -20,6 +21,8 @@ var (
 	BuildDate      = "<<< filled in by build >>>"
 	BuildCommitSha = "<<< filled in by build >>>"
 )
+
+var RedisInfoCacheData *cache.Cache
 
 func getEnv(key string, defaultVal string) string {
 	if envVal, ok := os.LookupEnv(key); ok {
@@ -39,6 +42,8 @@ func getEnvBool(key string, defaultVal bool) bool {
 }
 
 func main() {
+	// 默认过期时间为60min，每10min清理一次过期缓存
+	RedisInfoCacheData = cache.New(5*time.Minute, 10*time.Minute)
 	var (
 		redisAddr           = flag.String("redis.addr", getEnv("REDIS_ADDR", "redis://localhost:6379"), "Address of the Redis instance to scrape")
 		redisPwd            = flag.String("redis.password", getEnv("REDIS_PASSWORD", ""), "Password of the Redis instance to scrape")
@@ -144,4 +149,5 @@ func main() {
 	log.Infof("Providing metrics at %s%s", *listenAddress, *metricPath)
 	log.Debugf("Configured redis addr: %#v", *redisAddr)
 	log.Fatal(http.ListenAndServe(*listenAddress, exp))
+
 }
